@@ -45,6 +45,7 @@ def load_image_pairs(path):
 if __name__ == '__main__':
     path = '/win2/data/livepeer/images/'
     x_path, y_path = '/win2/data/livepeer/images/x.npz', '/win2/data/livepeer/images/y.npz'
+    checkpoint_filepath = '../../../data/checkpoint'
     random.seed(1337)
     np.random.seed(1337)
 
@@ -68,22 +69,27 @@ if __name__ == '__main__':
 
     model = create_model()
 
-    checkpoint_filepath = '../../../data/checkpoint'
+    model_loaded = True
+    try:
+        model.load_weights(checkpoint_filepath)
+    except:
+        model_loaded = False
+
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
         save_weights_only=True,
         monitor='loss',
         mode='min',
         save_best_only=True)
-
-    history = model.fit(
-        [x_train[..., 0], x_train[..., 1]],
-        y_train,
-        batch_size=64,
-        epochs=100,
-        shuffle=True,
-        callbacks = [model_checkpoint_callback]
-    )
+    if not model_loaded:
+        history = model.fit(
+            [x_train[..., 0], x_train[..., 1]],
+            y_train,
+            batch_size=64,
+            epochs=100,
+            shuffle=True,
+            callbacks = [model_checkpoint_callback]
+        )
     y_pred = model.predict([x_test[..., 0], x_test[..., 1]])
     model.save('../output/verifier_cnn.hdf5')
     y_pred_label = y_pred[..., 1] > 0.5
