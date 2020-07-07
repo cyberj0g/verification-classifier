@@ -42,11 +42,11 @@ class TestVarFps:
     def test_classification(self):
         source_dir = '../data/renditions/1080p/'
         rendition_dirs = [
-            ('../data/renditions/720p_watermark/', True),
-            ('../data/renditions/720p_60-24fps/', False),
-            #('../data/renditions/720p/', False),
+            #('../data/renditions/720p_watermark/', True),
+            #('../data/renditions/720p_60-24fps/', False),
+            ('../data/renditions/720p/', False),
         ]
-        files = None
+        files = ['0fIdY5IAnhY_60.mp4']
         debug = True
         n_samples = 10
         gpu = False

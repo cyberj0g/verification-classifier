@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 import cv2
 from verifier import *
 from sklearn.metrics import classification_report
@@ -28,13 +29,13 @@ def load_image_pairs(path):
         # append RGB image
         master_img = cv2.imread(master)[..., ::-1]
         rend_img = cv2.imread(rend_name)[..., ::-1]
+        names.append({'master': master, 'rendition': rend_name, 'src_res': master_img.shape[:2]})
         if master_img.shape[:2] != IMG_SHAPE[:2]:
             master_img = cv2.resize(master_img, IMG_SHAPE[:2])
         if rend_img.shape[:2] != IMG_SHAPE[:2]:
             rend_img = cv2.resize(rend_img, IMG_SHAPE[:2])
         x1.append(master_img)
         x2.append(rend_img)
-        names.append(master)
         y.append([0, 1] if master.split(os.sep)[-2] == 'tamper' else [1, 0])
     x1 = preprocess_input(np.array(x1, dtype=np.uint8))
     x2 = preprocess_input(np.array(x2, dtype=np.uint8))
@@ -44,13 +45,16 @@ def load_image_pairs(path):
 
 if __name__ == '__main__':
     path = '/win2/data/livepeer/images/'
-    x_path, y_path = '/win2/data/livepeer/images/x.npz', '/win2/data/livepeer/images/y.npz'
+    x_path, y_path = '../../../data/x.npz', '../../../data/y.npz'
     checkpoint_filepath = '../../../data/checkpoint'
+    meta_file = '../../../data/cnn_meta.csv'
     random.seed(1337)
     np.random.seed(1337)
 
     if not os.path.exists(x_path) or not os.path.exists(y_path):
         x, y, names = load_image_pairs(path)
+        names = pd.DataFrame(names)
+        names.master_id = names.master.str.extract('(.+)__[0-9]+p')[0]
         # np.savez(x_path, x)
         # np.savez(y_path, y)
     else:
@@ -61,11 +65,19 @@ if __name__ == '__main__':
 
     test_fraction = 0.2
 
-    test_idx = np.random.choice(x.shape[0], int(0.2 * x.shape[0]), False)
+    unique_masters = names.master_id.unique()
+    test_masters = np.random.choice(unique_masters, int(0.2 * len(unique_masters)), False)
+    test_idx = np.where(np.isin(names.master_id, test_masters))[0]
+
     train_idx = list(set(range(x.shape[0])).difference(test_idx))
 
+    names_test = names.iloc[test_idx]
     x_test, y_test = x[test_idx], y[test_idx]
     x_train, y_train = x[train_idx], y[train_idx]
+
+    names_test.to_csv(meta_file)
+    np.savez(x_path+'.test', x_test)
+    np.savez(y_path+'.test', y_test)
 
     model = create_model()
 
@@ -86,7 +98,7 @@ if __name__ == '__main__':
             [x_train[..., 0], x_train[..., 1]],
             y_train,
             batch_size=64,
-            epochs=100,
+            epochs=20,
             shuffle=True,
             callbacks = [model_checkpoint_callback]
         )
