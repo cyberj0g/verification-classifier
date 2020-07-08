@@ -106,7 +106,7 @@ if __name__ == '__main__':
             y_train,
             validation_data=[[x_val[..., 0], x_val[..., 1]], y_val],
             batch_size=64,
-            epochs=50,
+            epochs=200,
             shuffle=True,
             callbacks=[model_checkpoint_callback, early_stopping_callback]
         )
