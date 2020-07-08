@@ -1,1 +1,1 @@
-from .verifier import create_model, preprocess_input
+from .verifier import create_model, preprocess_input, create_feature_extractor

@@ -9,9 +9,10 @@ import glob
 import random
 import tensorflow as tf
 
+
 def load_image_pairs(path):
     files = list(glob.glob(path + '/**/*.*'))
-    random.shuffle(files)
+    np.random.shuffle(files)
     files = files[:40000]
     x1, x2 = [], []
     y = []
@@ -51,6 +52,8 @@ if __name__ == '__main__':
     random.seed(1337)
     np.random.seed(1337)
 
+    model = create_model()
+
     if not os.path.exists(x_path) or not os.path.exists(y_path):
         x, y, names = load_image_pairs(path)
         names = pd.DataFrame(names)
@@ -66,26 +69,28 @@ if __name__ == '__main__':
     test_fraction = 0.2
 
     unique_masters = names.master_id.unique()
-    test_masters = np.random.choice(unique_masters, int(0.2 * len(unique_masters)), False)
-    test_idx = np.where(np.isin(names.master_id, test_masters))[0]
+    test_val_masters = np.random.choice(unique_masters, int(0.3 * len(unique_masters)), False)
+    test_masters = test_val_masters[:int(0.66 * len(test_val_masters))]
+    val_masters = test_val_masters[int(0.66 * len(test_val_masters)):]
 
-    train_idx = list(set(range(x.shape[0])).difference(test_idx))
+    test_idx = np.where(np.isin(names.master_id, test_masters))[0]
+    val_idx = np.where(np.isin(names.master_id, val_masters))[0]
+    train_idx = list(set(range(x.shape[0])).difference(test_idx).difference(val_idx))
 
     names_test = names.iloc[test_idx]
     x_test, y_test = x[test_idx], y[test_idx]
     x_train, y_train = x[train_idx], y[train_idx]
+    x_val, y_val = x[val_idx], y[val_idx]
 
     names_test.to_csv(meta_file)
-    np.savez(x_path+'.test', x_test)
-    np.savez(y_path+'.test', y_test)
+    np.savez(x_path + '.test', x_test)
+    np.savez(y_path + '.test', y_test)
 
-    model = create_model()
-
-    model_loaded = True
-    try:
-        model.load_weights(checkpoint_filepath)
-    except:
-        model_loaded = False
+    model_loaded = False
+    # try:
+    #     model.load_weights(checkpoint_filepath)
+    # except:
+    #     model_loaded = False
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
@@ -93,16 +98,21 @@ if __name__ == '__main__':
         monitor='loss',
         mode='min',
         save_best_only=True)
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_acc', mode='max', patience=7)
+
     if not model_loaded:
         history = model.fit(
             [x_train[..., 0], x_train[..., 1]],
             y_train,
+            validation_data=[[x_val[..., 0], x_val[..., 1]], y_val],
             batch_size=64,
-            epochs=20,
+            epochs=50,
             shuffle=True,
-            callbacks = [model_checkpoint_callback]
+            callbacks=[model_checkpoint_callback, early_stopping_callback]
         )
     y_pred = model.predict([x_test[..., 0], x_test[..., 1]])
+    results = model.evaluate([x_test[..., 0], x_test[..., 1]], y_test, batch_size=64)
+    print("test loss, test acc:", results)
     model.save('../output/verifier_cnn.hdf5')
     y_pred_label = y_pred[..., 1] > 0.5
     y_test_label = y_test[..., 1] > 0.5
