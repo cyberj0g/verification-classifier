@@ -10,16 +10,31 @@ import random
 import tensorflow as tf
 
 
-def load_image_pairs(path):
+def create_diff_sample(master_img, rend_img):
+    return np.abs(master_img - rend_img)
+
+
+def create_dual_sample(master_img, rend_img):
+    return np.stack([master_img, rend_img], axis=3)
+
+
+def single_input(x):
+    return x
+
+
+def dual_input(x):
+    return [x[..., 0], x[..., 1]]
+
+
+def load_image_pairs(path, sample_func, sample_shape):
     files = list(glob.glob(path + '/**/*.*'))
     np.random.shuffle(files)
-    files = files[:40000]
-    x1, x2 = [], []
+    files = files
+    x = np.zeros(shape=(len(files), *sample_shape), dtype=np.uint8)
     y = []
     names = []
     i = 0
     for master in tqdm.tqdm(files, 'Loading data...'):
-        i += 1
         if not master.split('.')[-2].endswith('__m'):
             continue
         if 'bitrate' in master:
@@ -35,13 +50,12 @@ def load_image_pairs(path):
             master_img = cv2.resize(master_img, IMG_SHAPE[:2])
         if rend_img.shape[:2] != IMG_SHAPE[:2]:
             rend_img = cv2.resize(rend_img, IMG_SHAPE[:2])
-        x1.append(master_img)
-        x2.append(rend_img)
+        x[i] = sample_func(master_img, rend_img)
         y.append([0, 1] if master.split(os.sep)[-2] == 'tamper' else [1, 0])
-    x1 = preprocess_input(np.array(x1, dtype=np.uint8))
-    x2 = preprocess_input(np.array(x2, dtype=np.uint8))
+        i += 1
+    x = preprocess_input(x[:i])
     y = np.array(y, dtype=np.uint8)
-    return np.stack([x1, x2], axis=4), y, names
+    return x, y, names
 
 
 if __name__ == '__main__':
@@ -52,10 +66,17 @@ if __name__ == '__main__':
     random.seed(1337)
     np.random.seed(1337)
 
-    model = create_model()
+    model = create_model3()
+    sample_func = create_diff_sample
+    input_converter = single_input
+
+    # model = create_model()
+    # sample_func = create_dual_sample
+    # input_converter = dual_input
 
     if not os.path.exists(x_path) or not os.path.exists(y_path):
-        x, y, names = load_image_pairs(path)
+        # x, y, names = load_image_pairs(path, create_diff_sample, IMG_SHAPE)
+        x, y, names = load_image_pairs(path, create_dual_sample, (160, 160, 3, 2))
         names = pd.DataFrame(names)
         names.master_id = names.master.str.extract('(.+)__[0-9]+p')[0]
         # np.savez(x_path, x)
@@ -98,20 +119,19 @@ if __name__ == '__main__':
         monitor='loss',
         mode='min',
         save_best_only=True)
-    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_acc', mode='max', patience=7)
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_acc', mode='max', patience=2)
 
     if not model_loaded:
-        history = model.fit(
-            [x_train[..., 0], x_train[..., 1]],
-            y_train,
-            validation_data=[[x_val[..., 0], x_val[..., 1]], y_val],
-            batch_size=64,
-            epochs=200,
-            shuffle=True,
-            callbacks=[model_checkpoint_callback, early_stopping_callback]
-        )
-    y_pred = model.predict([x_test[..., 0], x_test[..., 1]])
-    results = model.evaluate([x_test[..., 0], x_test[..., 1]], y_test, batch_size=64)
+        history = model.fit(input_converter(x_train),
+                            y_train,
+                            validation_data=[input_converter(x_val), y_val],
+                            batch_size=64,
+                            epochs=10,
+                            shuffle=True,
+                            callbacks=[model_checkpoint_callback, early_stopping_callback]
+                            )
+    y_pred = model.predict(input_converter(x_test))
+    results = model.evaluate(input_converter(x_test), y_test, batch_size=64)
     print("test loss, test acc:", results)
     model.save('../output/verifier_cnn.hdf5')
     y_pred_label = y_pred[..., 1] > 0.5
